@@ -1,0 +1,314 @@
+### Basic authorization.
+GET https://httpbin.org/basic-auth/user/passwd
+Authorization: Basic user passwd
+
+### Basic authorization with variables.
+GET https://httpbin.org/basic-auth/user/passwd
+Authorization: Basic {{username}} {{password}}
+
+### Digest authorization.
+GET https://httpbin.org/digest-auth/realm/user/passwd
+Authorization: Digest user passwd
+
+### Digest authorization with variables.
+GET https://httpbin.org/digest-auth/realm/user/passwd
+Authorization: Digest {{username}} {{password}}
+
+### Authorization by token, part 1. Retrieve and save token.
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+    "token": "my-secret-token"
+}
+
+> {% client.global.set("auth_token", response.body.json.token); %}
+
+### Authorization by token, part 2. Use token to authorize.
+GET https://httpbin.org/headers
+Authorization: Bearer {{auth_token}}
+
+###
+
+### Send POST request with json body
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+    "id": 999,
+    "value": "content"
+}
+
+### Send POST request with body as parameters
+POST https://httpbin.org/post
+Content-Type: application/x-www-form-urlencoded
+
+id=999&value=content
+
+### Send a form with the text and file fields
+POST https://httpbin.org/post
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="element-name"
+Content-Type: text/plain
+
+Name
+--WebAppBoundary
+Content-Disposition: form-data; name="data"; filename="data.json"
+Content-Type: application/json
+
+< ./request-form-data.json
+--WebAppBoundary--
+
+### Send request with dynamic variables in request's body
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+  "id": {{$uuid}},
+  "price": {{$randomInt}},
+  "ts": {{$timestamp}},
+  "value": "content"
+}
+
+###
+
+### GET request with a header
+GET https://httpbin.org/ip
+Accept: application/json
+
+### GET request with parameter
+GET https://httpbin.org/get?show_env=1
+Accept: application/json
+
+### GET request with environment variables
+GET {{host}}/get?show_env={{show_env}}
+Accept: application/json
+
+### GET request with disabled redirects
+# @no-redirect
+GET http://httpbin.org/status/301
+
+### GET request with dynamic variables
+GET http://httpbin.org/anything?id={{$uuid}}&ts={{$timestamp}}
+
+###
+
+### Successful test: check response status is 200
+GET https://httpbin.org/status/200
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Failed test: check response status is 200
+GET https://httpbin.org/status/404
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+%}
+
+### Check response status and content-type
+GET https://httpbin.org/get
+
+> {%
+    client.test("Request executed successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+
+    client.test("Response content-type is json", function() {
+        var type = response.contentType.mimeType;
+        client.assert(type === "application/json", "Expected 'application/json' but received '" + type + "'");
+    });
+%}
+
+### Check response body
+GET https://httpbin.org/get
+
+> {%
+    client.test("Headers option exists", function() {
+        client.assert(response.body.hasOwnProperty("headers"), "Cannot find 'headers' option in response");
+    });
+%}
+
+###
+
+### Request to get GraphQL Schema
+// Our server works with the following GraphQL schema
+GET http://{{$exampleServer}}/graphql
+
+>> {{$historyFolder}}/examples.graphqls
+
+### Simple Query over HTTP
+// We just write a GraphQL query in the request body
+GRAPHQL http://{{$exampleServer}}/graphql
+
+query {
+  getUser(userName: "My Favorite User") {
+    name
+    comments {
+      text
+      by
+    }
+  }
+}
+
+### Query with variables
+// To specify GraphQL variables, add JSON after a query
+GRAPHQL http://{{$exampleServer}}/graphql
+
+query retrivingComments($commentsInfix: String) {
+  getCommentsWith(text: $commentsInfix) {
+    text
+    by
+  }
+}
+
+{
+    "commentsInfix": "GraphQL in HTTP Client!"
+}
+
+### Queries over WebSocket
+// If server supports WebSocket for GraphQL, we can use it for sending requests via WebSocket
+GRAPHQL ws://{{$exampleServer}}/graphql-ws
+
+mutation creatingNewComment($text: String) {
+  newComment(userName: "JetBrains user", text: $text) {
+    by
+    text
+  }
+}
+
+{
+    "text": "GraphQL over WebSocket!"
+}
+
+### Subscriptions over WebSockets
+// WebSockets are handy for GraphQL subscriptions
+GRAPHQL ws://{{$exampleServer}}/graphql-ws
+
+subscription {
+  newComments {
+    text
+    by
+  }
+}
+
+
+### Response Scripts for GraphQL over HTTP
+GRAPHQL http://{{$exampleServer}}/graphql
+
+query retrivingRequests($commentsInfix: String) {
+  getCommentsWith(text: $commentsInfix) {
+    text
+    by
+  }
+}
+
+{
+    "commentsInfix": "Inside script!"
+}
+
+> {%
+    // In HTTP, our response is just a JSON object
+    response.body.data.getCommentsWith.forEach((comment, i) => {
+        client.test("Checking " + i, () => {
+            client.assert(comment.text.includes("Inside script!"))
+            client.assert(comment.by !== undefined)
+        })
+    })
+%}
+
+### Response Scripts for GraphQL over WebSocket
+GRAPHQL ws://{{$exampleServer}}/graphql-ws
+
+subscription {
+  newComments {
+    text
+    by
+  }
+}
+
+> {%
+    var i = 0;
+    // In WebSocket, response is a stream
+    response.body.onEachMessage((message, unsubscribe) => {
+        i++;
+        client.test("Response " + i + " contains 'text' and 'by'", () => {
+            client.assert(message.text !== undefined)
+            client.assert(message.by !== undefined)
+        });
+        if (i === 10) {
+            unsubscribe()
+        }
+    });
+%}
+
+### Simple WebSocket Request
+// It is possible to send messages to server right from the Services tool window
+WEBSOCKET ws://{{$exampleServer}}/ws
+
+### Request with client messages
+// It is possible to specify client messages in request body. Use '===' to separate messages.
+// Add '=== wait-for-server' above a message to send it after a server response is received.
+// To wait for N responses, add '=== wait-for-server' N times.
+WEBSOCKET ws://{{$exampleServer}}/ws
+Content-Type: application/json // We use it for highlighting
+
+===
+{
+    "message": "Hello, server!",
+    "repeat": 3
+}
+=== wait-for-server
+=== wait-for-server
+{
+    "message": "We send this message...",
+    "repeat": 0
+}
+===
+{
+    "message": "And this message together",
+    "repeat": 1
+}
+
+### Requests with scripts
+// Also, we can use scripts for sending messages to server and verifying messages from the server.
+WEBSOCKET ws://{{$exampleServer}}/ws
+Content-Type: application/json
+
+{
+    "message": "Beginning message"
+}
+
+> {%
+    var i = 0
+    response.body.onEachMessage((message, unsubscribe, output) => {
+        i++
+        const jsonMessage = JSON.parse(message); // We know that our sample server returns JSON
+        client.test("Server sent a JSON with 'message' property: " + i , () => {
+            client.assert(jsonMessage.message !== undefined)
+        });
+        if (jsonMessage.message.includes("finish")) {
+            unsubscribe() // remove current listener
+            return
+        }
+
+        if (i === 5) {
+            output(JSON.stringify({
+                message: "finish"
+            }));
+        } else {
+            output(JSON.stringify({
+                message: "Message from the script: " + i
+            }));
+        }
+    }, () => {
+        client.log("We stopped listening for WebSocket from the current 'onEachMessage' call!")
+    });
+%}
